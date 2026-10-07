@@ -1,4 +1,4 @@
-[README.md](https://github.com/user-attachments/files/33141394/README.md)
+[README.md](https://github.com/user-attachments/files/33154465/README.md)
 # Meeting Assistant
 
 Turns a meeting recording into a transcript and a structured meeting record: a summary, minutes per topic, agreed decisions, proposals that were not agreed, and action items with owners and deadlines. Every item cites the transcript lines it came from, and anything the pipeline could not confirm is listed as a flag for review.
@@ -163,6 +163,9 @@ Runtime settings live in `.env` (see [`.env.example`](.env.example)):
 | Variable | Default | Meaning |
 |---|---|---|
 | `LLM_BACKEND` | `local` in `.env.example` | `local` (GPU) or `api` (Groq + Gemini) |
+| `REFINE_BACKEND` / `DOC_BACKEND` | `LLM_BACKEND` | Backend for one role only, e.g. `DOC_BACKEND=api` |
+| `API_MIN_INTERVAL` | `7` | Minimum seconds between requests to one API model (stays under 10 per minute) |
+| `DOC_FALLBACK_MODEL` | `auto` | Groq model used when Gemini's quota runs out; `none` turns this off |
 | `REFINE_LOCAL_MODEL` / `REFINE_LOCAL_QUANT` | `Qwen/Qwen2.5-3B-Instruct` / `16bit` | Refinement model and precision (`16bit` or `4bit`) |
 | `DOC_LOCAL_MODEL` / `DOC_LOCAL_QUANT` | `Qwen/Qwen2.5-7B-Instruct` / `4bit` | Documentation model and precision |
 | `LOCAL_MAX_INPUT` | `24000` | Longest prompt in tokens; longer requests use smaller prompts |
@@ -195,7 +198,7 @@ In short:
 
 - **Refinement**: rules that allow fixing only mis-heard words (terms, acronyms, names) and forbid changing numbers, negations, names or commitments; one hand-written worked example; the glossary and the last 3 corrected lines as context; 20 lines per call; temperature 0.
 - **Stage A**: rules for what counts as an agreed decision, a proposal and a task (never guess an owner); 3 few-shot excerpts from the AMI Meeting Corpus plus 1 hand-written example of a parked proposal and an owner-less task; the `Transcript: … + instruction` format; temperature 0.
-- **Stage D**: checks each item against only the lines it cites; temperature 0.
+- **Stage D**: checks each item against only the lines it cites; tasks without an owner count as valid; temperature 0. A rejected item is kept and flagged for review if its key words appear on its cited lines, and removed otherwise.
 - **Stage C**: writes summary and minutes from the verified record only; temperature 0.2.
 
 ## Data
@@ -242,6 +245,8 @@ meeting_assistant/
 **Speaker labels.** Accept the terms of [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) on Hugging Face, `pip install pyannote.audio`, set `HF_TOKEN=hf_...` in `.env`, then tick *Speaker labels* in the app (or pass `--diarize`).
 
 **API backend.** Set `LLM_BACKEND=api` (or run `python app/app.py --api`) and add `GROQ_API_KEY` and `GEMINI_API_KEY` to `.env`. Refinement then runs on Groq, documentation on Gemini; no GPU is needed for the language models.
+
+**Local refinement + Gemini documentation.** Keep `LLM_BACKEND=local` and set `DOC_BACKEND=api` and `GEMINI_API_KEY` in `.env`. Refinement stays on the GPU (Qwen2.5-3B) and Stages A, D and C use Gemini Flash. This suits small GPUs, where Qwen2.5-7B does not fit. A meeting needs about 3 Gemini requests (one each for Stages A, D and C), spaced `API_MIN_INTERVAL` seconds apart. More are sent only if a reply is not valid JSON or a per-minute limit asks the app to wait. The status line at the end of a run shows how many requests were sent. When the daily quota is used up, the run stops with a message instead of retrying.
 
 ## Troubleshooting
 
