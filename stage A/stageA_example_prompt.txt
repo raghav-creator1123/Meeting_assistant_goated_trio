@@ -1,0 +1,193 @@
+===== SYSTEM =====
+You extract a structured meeting record from a numbered meeting transcript.
+Lines look like "[12] SPEAKER_01: text"; the speaker label may be missing.
+Cite line numbers for everything.
+
+Rules:
+- topics: the main discussion segments in order, each with a short title and the first and last line.
+- decisions: something the group settled on.
+  * status "agreed" only if a line shows acceptance or confirmation (e.g. "yes, let's do that",
+    "okay, we'll go with that", nobody objects and the chair confirms, or an announced decision).
+    Put the line(s) where it was proposed in proposal_lines and the acceptance in confirmation_lines.
+  * status "proposed_only" if it was suggested but not accepted, rejected, or left open.
+    confirmation_lines must then be [].
+  * Keep negation exactly ("will not use teletext" is not "will use teletext").
+- tasks: work someone must do after the meeting.
+  * owner: the name, role or speaker label exactly as the transcript states it; else null.
+    "Someone should look into X" has owner null. Never guess an owner from context.
+  * deadline: only if a time or date is said ("by Friday", "next meeting"); else null.
+  * owner_lines / deadline_lines: the lines that state them; [] when null.
+  * evidence_lines: the lines where the task is given or accepted.
+- Do not invent anything that is not in the transcript. Write decisions and tasks as short
+  third-person sentences. Return empty lists when there is nothing to report.
+
+===== USER =====
+Transcript:
+[1] SPEAKER_00: Yeah, I would imagine.
+[2] SPEAKER_01: Yeah.
+[3] SPEAKER_02: I dunno if you can
+[4] SPEAKER_00: Just 'cause it is an electronic device, The
+[5] SPEAKER_02: Yeah.
+[6] SPEAKER_01: Mm. It I think it does. I don't I don't think of a way you can operate a chip and convert that much data without without one.
+[7] SPEAKER_02: Yeah, without the energy, yeah.
+[8] SPEAKER_01: But you could maybe have it in a little charging station like a mobile phone, or like a little cradle for your iPod.
+[9] SPEAKER_02: Yeah, that's that's possible. Yeah.
+[10] SPEAKER_01: You could We could maybe do that instead. So you don't ha you got like a rechargeable battery.
+[11] SPEAKER_00: Charging.
+[12] SPEAKER_02: Yeah.
+[13] SPEAKER_01: I dunno, That might contribute to less people losing it too if it it stays in one place.
+[14] SPEAKER_00: Mm-hmm.
+[15] SPEAKER_03: Mm.
+[16] SPEAKER_00: We have to think about um space in living-rooms, too, Like 'cause they're
+[17] SPEAKER_01: Mm.
+[18] SPEAKER_00: I mean, would you put it on top of the TV? I don't know, Just think Okay, That's that's a good idea, We'll keep it.
+[19] SPEAKER_01: Yeah.
+[20] SPEAKER_00: Think it's
+[21] SPEAKER_01: That's just off the top of my head.
+[22] SPEAKER_00: And maybe fun. Okay. Um 'kay We're gonna conclude now, Has everyone said their functions And
+[23] SPEAKER_02: Yep.
+[24] SPEAKER_00: 'kay. Um after the meeting we're gonna each complete a sks um a questionnaire and a summaries — summary. I don't know what summarisation. Um and then we'll have our lunch break. After that we have thirty minutes of individual work. Um I'll make sure to put up um the minutes and the project documentation and including these PowerPoint slides. If everyone could do that as well, that'd be great. Um you each have individual actions,
+[25] SPEAKER_00: I um ID Industrial Design you've your components concept, User Interface, the user interface concept, Market trend wa watching. And as as per last time you'll get specific incrat instructions from your personal coach e-mailed to you. And hopefully, I hope, next time you'll be able to access more of the web site That they they seem to tell you that you could.
+[26] SPEAKER_01: Yeah,
+[27] SPEAKER_00: It's kinda frustrating,
+[28] SPEAKER_01: Who knows.
+[29] SPEAKER_00: But um Be sure to note any frustrations or any um issues that come up in your um in your um summary.
+[30] SPEAKER_01: Okay
+[31] SPEAKER_00: Mm 'kay?
+[32] SPEAKER_01: Sounds good.
+[33] SPEAKER_00: Great seeing y'all.
+[34] SPEAKER_03: It's good. Did you um Were you able to like put yours in the group folder?
+[35] SPEAKER_01: Yes, I just did that.
+[36] SPEAKER_03: Okay.
+[37] SPEAKER_01: Hopefully it is there for people.
+[38] SPEAKER_03: Yep.
+[39] SPEAKER_01: Yeah?
+[40] SPEAKER_00: Looks like there are um — looks like there's a second one kind of of mine that's — that I didn't do,
+
+Extract the topics, decisions and tasks from the above transcript. Return only JSON that follows the schema.
+
+===== ASSISTANT =====
+{"topics": [{"title": "Discussion", "start_line": 1, "end_line": 24}, {"title": "Closing", "start_line": 24, "end_line": 33}, {"title": "Agenda/equipment issues", "start_line": 34, "end_line": 40}], "decisions": [{"text": "The remote will have a charging station.", "status": "agreed", "proposal_lines": [8], "confirmation_lines": [9, 18]}], "tasks": [{"text": "Each team member will complete a questionnaire and a summary.", "owner": null, "owner_lines": [], "deadline": null, "deadline_lines": [], "evidence_lines": [24]}, {"text": "The team members will spend time on their individual work.", "owner": null, "owner_lines": [], "deadline": null, "deadline_lines": [], "evidence_lines": [24]}, {"text": "The project manager will post the minutes and project documentation.", "owner": "SPEAKER_00", "owner_lines": [24], "deadline": null, "deadline_lines": [], "evidence_lines": [24]}, {"text": "The team members will post their project documentation.", "owner": null, "owner_lines": [], "deadline": null, "deadline_lines": [], "evidence_lines": [24]}, {"text": "The industrial designer will work on the components concept.", "owner": "Industrial Design", "owner_lines": [25], "deadline": null, "deadline_lines": [], "evidence_lines": [25]}, {"text": "The user interface designer will work on the user interface concept.", "owner": "User Interface", "owner_lines": [25], "deadline": null, "deadline_lines": [], "evidence_lines": [25]}, {"text": "The marketing expert will work on trend watching", "owner": null, "owner_lines": [], "deadline": null, "deadline_lines": [], "evidence_lines": [25]}]}
+
+===== USER =====
+Transcript:
+[1] SPEAKER_00: Very good.
+[2] SPEAKER_01: Okay, and if you need uh any coordination in between uh compared to the maybe the some technical vendors or commercial vendors, okay, depends if you want to have some uh uh marketing plan or technical plan, okay, so you let me know. Okay, I can coordinate,
+[3] SPEAKER_00: Very good.
+[4] SPEAKER_01: Or maybe uh, you are my coordinator, am I right?
+[5] SPEAKER_02: Mm.
+[6] SPEAKER_01: Between uh all the coor
+[7] SPEAKER_02: Well, no, not exactly. I mean my job from what I understood was to look at the usability requirements and make sure that the product is usable, it's acceptable to the people who are gonna use it and look at the best ways to do that.
+[8] SPEAKER_01: Yeah.
+[9] SPEAKER_02: So I think I'll have to interact with Christine and discuss with her, so that she's not designing something that my studies will show right off the bat that it's not going to work,
+[10] SPEAKER_01: Th Christine, yeah. Which is
+[11] SPEAKER_02: And so it's sort of — it's a loop that feeds in, But I don't think necessarily that I'm in a coordinating position for it.
+[12] SPEAKER_01: Yes. Yeah, so basically you need to interact with Christine more, okay, for the user acceptability, okay, and the testing, okay,
+[13] SPEAKER_02: Yeah. Mm-hmm.
+[14] SPEAKER_01: Then you will
+[15] SPEAKER_02: Which will also feed into the marketing,
+[16] SPEAKER_01: Yes.
+[17] SPEAKER_02: Because depending on what users want, depends on how you sell it, what tag lines you attach to it, how you try to make it more attractive to users.
+[18] SPEAKER_01: Yes. Yeah. Yeah. Yeah.
+[19] SPEAKER_02: So I think all three groups will need to interact quite a bit. Um, and then I guess build the plan based on all of that, Because I think you need to take all the factors into account.
+[20] SPEAKER_01: Yep. But what I request, okay, keep Ed in the loop, okay, in between your uh meeting and Christine meeting, because uh he should know what's happening.
+[21] SPEAKER_02: Yeah, of course. Yeah, we can CC him on any discussions or documents that are passed around.
+[22] SPEAKER_01: Yes. Okay and please please copy all the mails, okay, all the discussions to me, okay,
+[23] SPEAKER_02: Sure.
+[24] SPEAKER_01: So I need to submit to the management.
+[25] SPEAKER_02: No problem.
+[26] SPEAKER_01: So any questions for uh time being?
+[27] SPEAKER_00: No.
+[28] SPEAKER_02: So, the immediate next step is to start determining the functional design, or
+[29] SPEAKER_01: Yes.
+[30] SPEAKER_02: Okay.
+[31] SPEAKER_01: Okay. To come up with the functional design and uh to discuss with Ed, okay, and how it's going to be work, And uh first of all with your user acceptance, okay, how it looks like and how it's going to be work in the market, okay,
+[32] SPEAKER_02: Mm-hmm.
+[33] SPEAKER_01: So then we can discuss about uh further things.
+[34] SPEAKER_02: Okay.
+[35] SPEAKER_01: So, we'll meet when the — we'll discuss on the further meeting. It's okay?
+[36] SPEAKER_02: Mm-hmm.
+[37] SPEAKER_01: Thanks for coming.
+[38] SPEAKER_03: Would you mind um at the conclusion of our meeting could could you send us a copy of your slides?
+[39] SPEAKER_01: Yes, I will. Yes.
+[40] SPEAKER_02: Mm-hmm, Yeah, that would be useful.
+
+Extract the topics, decisions and tasks from the above transcript. Return only JSON that follows the schema.
+
+===== ASSISTANT =====
+{"topics": [{"title": "Project specs and roles of participants", "start_line": 1, "end_line": 27}, {"title": "Agenda/equipment issues", "start_line": 28, "end_line": 35}, {"title": "Closing", "start_line": 35, "end_line": 40}], "decisions": [{"text": "The group will discuss the design plans of the three experts at the next meeting.", "status": "agreed", "proposal_lines": [33], "confirmation_lines": [34]}, {"text": "The group will first work on a functional design of the device.", "status": "agreed", "proposal_lines": [28], "confirmation_lines": [29]}], "tasks": [{"text": "The Industrial Designer will prepare an initial functional design.", "owner": null, "owner_lines": [], "deadline": null, "deadline_lines": [], "evidence_lines": [31]}, {"text": "The User Interface Designer will contribute studies on user requirements to the functional design.", "owner": null, "owner_lines": [], "deadline": null, "deadline_lines": [], "evidence_lines": [7, 31]}, {"text": "The Project Manager will post his presentation to be available for all participants.", "owner": "SPEAKER_01", "owner_lines": [39], "deadline": null, "deadline_lines": [], "evidence_lines": [38, 39]}]}
+
+===== USER =====
+Transcript:
+[1] SPEAKER_00: No, well something trendy and original, Well that that goes hand in hand I guess.
+[2] SPEAKER_01: Yeah.
+[3] SPEAKER_00: When something is original, it tends to be trendy, probably, Or we should make it combination of that. 'Kay, so you The um technical part of the process is something you're gonna look after for, So you have to think about what kind of uh equipment you want to uh, you know, you want to manage with it. Well, and that's an important part for you then, with gogors regards to the user-friendly part of it.
+[4] SPEAKER_02: Use friendly. Yep.
+[5] SPEAKER_00: Well, and you uh should look out for what makes it trendy. Well, you know, y like some special feature. Or some — Does it does it gets some gadgetness or something.
+[6] SPEAKER_01: Yeah. Yes, what the market wishes.
+[7] SPEAKER_00: Okay. Well, the closing. Next meeting starts in thirty minutes. Individual, I think so. The the Industrial Designer will w or the working design, of course, We will uh Already s said that. The User Interface Designer Is it a User Inter User Interface
+[8] SPEAKER_02: Yeah. Yeah, yeah. Interface d
+[9] SPEAKER_01: Yeah.
+[10] SPEAKER_00: The technical functions design. And the Management Expert of uh — the Marketing Expert. User requirements specifi Well, this one was already clear to us. Specific instructions will be sent to you by your personal coach. I don't know how much time we have left. Oh, not many I guess. We started at twelve.
+[11] SPEAKER_01: You just got a message.
+[12] SPEAKER_00: Oh, and what does it said?
+[13] SPEAKER_01: And it said uh five minutes, so we got four and a half.
+[14] SPEAKER_02: Oh, I don't
+[15] SPEAKER_00: W Okay, well um
+[16] SPEAKER_02: I didn't get a message.
+[17] SPEAKER_01: No. He's the whatever.
+[18] SPEAKER_02: Oh, the Project Manager.
+[19] SPEAKER_03: Team Leader.
+[20] SPEAKER_00: No, we're uh ahead of schedule then.
+[21] SPEAKER_01: Team Leader. He is the whatever.
+[22] SPEAKER_00: Yeah, close it. I'm gonna make some minutes or take some minutes.
+[23] SPEAKER_02: Okay.
+[24] SPEAKER_01: Yes.
+[25] SPEAKER_00: And uh it's it's clear you can put the stuff in the project documents presentations.
+[26] SPEAKER_02: Okay.
+[27] SPEAKER_00: You can all — Or we're all uh
+[28] SPEAKER_01: Project joc project documents is for showing uh on the white-board.
+[29] SPEAKER_00: Yeah. Yeah, but we're all familiar with uh uh Microsoft PowerPoint, are we?
+[30] SPEAKER_01: Yeah. Yes.
+[31] SPEAKER_02: Yeah.
+[32] SPEAKER_00: Yeah, okay. I'm gonna wri uh write some stuff down
+[33] SPEAKER_01: Alright.
+[34] SPEAKER_00: And then we're ready.
+[35] SPEAKER_01: Okay.
+[36] SPEAKER_00: Or we can leave already I guess.
+[37] SPEAKER_01: Yeah.
+[38] SPEAKER_00: Or uh or sh or should we uh Or is important that we leave at exact uh
+[39] SPEAKER_03: No.
+[40] SPEAKER_01: No.
+
+Extract the topics, decisions and tasks from the above transcript. Return only JSON that follows the schema.
+
+===== ASSISTANT =====
+{"topics": [{"title": "Project specs and roles of participants", "start_line": 1, "end_line": 7}, {"title": "Closing", "start_line": 7, "end_line": 40}], "decisions": [], "tasks": [{"text": "The industrial designer will work on the working design.", "owner": "Industrial Designer", "owner_lines": [7], "deadline": "Next meeting", "deadline_lines": [7], "evidence_lines": [7]}, {"text": "The user interface designer will work on the technical functions design.", "owner": "User Interface Designer", "owner_lines": [7], "deadline": "Next meeting", "deadline_lines": [7], "evidence_lines": [7, 10]}, {"text": "The marketing expert will work on user requirements.", "owner": "Marketing Expert", "owner_lines": [10], "deadline": null, "deadline_lines": [], "evidence_lines": [10]}, {"text": "The project manager will write up the meeting minutes and put them in the project folder.", "owner": "SPEAKER_00", "owner_lines": [22, 32], "deadline": null, "deadline_lines": [], "evidence_lines": [22, 32]}]}
+
+===== USER =====
+Transcript:
+[1] SPEAKER_00: Okay, first thing, the login bug. It's still failing on Android.
+[2] SPEAKER_01: Yeah, it's the token refresh. Priya, can you take that?
+[3] SPEAKER_02: Sure, I'll fix it by Thursday.
+[4] SPEAKER_00: Great. Next, should we move the release to Redis caching first?
+[5] SPEAKER_01: Maybe we could switch the whole thing to GraphQL as well.
+[6] SPEAKER_02: Hmm, I'm not sure. That's a big change.
+[7] SPEAKER_00: Let's park GraphQL for now. But yes, we'll add Redis caching before release.
+[8] SPEAKER_01: Agreed.
+[9] SPEAKER_00: And we are not supporting Android 9 anymore, everyone okay with that?
+[10] SPEAKER_02: Yes.
+[11] SPEAKER_01: Someone should probably update the docs too.
+[12] SPEAKER_00: Right. Okay, that's it, thanks everyone.
+
+Extract the topics, decisions and tasks from the above transcript. Return only JSON that follows the schema.
+
+===== ASSISTANT =====
+{"topics": [{"title": "Android login bug", "start_line": 1, "end_line": 3}, {"title": "Release architecture", "start_line": 4, "end_line": 10}, {"title": "Documentation and close", "start_line": 11, "end_line": 12}], "decisions": [{"text": "Redis caching will be added before the release.", "status": "agreed", "proposal_lines": [4], "confirmation_lines": [7, 8]}, {"text": "Switching to GraphQL was suggested but parked.", "status": "proposed_only", "proposal_lines": [5], "confirmation_lines": []}, {"text": "Android 9 will no longer be supported.", "status": "agreed", "proposal_lines": [9], "confirmation_lines": [10]}], "tasks": [{"text": "Fix the Android login token refresh bug.", "owner": "Priya", "owner_lines": [2, 3], "deadline": "Thursday", "deadline_lines": [3], "evidence_lines": [2, 3]}, {"text": "Update the documentation.", "owner": null, "owner_lines": [], "deadline": null, "deadline_lines": [], "evidence_lines": [11, 12]}]}
+
+===== USER =====
+Transcript:
+[1] SPEAKER_00: (your meeting transcript goes here)
+
+Extract the topics, decisions and tasks from the above transcript. Return only JSON that follows the schema.
+
