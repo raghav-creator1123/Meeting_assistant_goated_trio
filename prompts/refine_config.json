@@ -1,0 +1,6 @@
+{
+  "use_demo": true,
+  "batch_size": 20,
+  "chosen": "C_rules_demo",
+  "model": "auto"
+}
