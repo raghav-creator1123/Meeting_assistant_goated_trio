@@ -4,7 +4,7 @@ copied from the code so the document cannot drift from what actually runs.
 
     python tools/export_prompts.py
 
-Re-run it after changing refine.py, stageA_prompt.py or document.py.
+Re-run it after changing app/refine.py, app/stageA_prompt.py or app/document.py.
 """
 
 import json
@@ -12,7 +12,7 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "app"))
 os.chdir(ROOT)
 
 import document          # noqa: E402
@@ -45,12 +45,12 @@ def main():
       "from these prompts plus the code checks described in the README.\n")
     w("| Stage | Code | Default local model | Messages | Temperature |\n"
       "|---|---|---|---|---|\n"
-      f"| Refinement | `refine.py` | `{LOCAL_DEFAULTS['refine'][0]}` ({LOCAL_DEFAULTS['refine'][1]}) "
+      f"| Refinement | `app/refine.py` | `{LOCAL_DEFAULTS['refine'][0]}` ({LOCAL_DEFAULTS['refine'][1]}) "
       "| system, worked example (user + assistant), batch | 0 |\n"
-      f"| Stage A extract | `stageA_prompt.py` | `{LOCAL_DEFAULTS['doc'][0]}` ({LOCAL_DEFAULTS['doc'][1]}) "
+      f"| Stage A extract | `app/stageA_prompt.py` | `{LOCAL_DEFAULTS['doc'][0]}` ({LOCAL_DEFAULTS['doc'][1]}) "
       f"| system, {len(fewshot)} AMI examples + 1 synthetic (user + assistant each), transcript | 0 |\n"
-      f"| Stage D verify | `document.py` | same as Stage A | system, items | 0 |\n"
-      f"| Stage C write | `document.py` | same as Stage A | system, record + transcript | 0.2 |\n")
+      f"| Stage D verify | `app/document.py` | same as Stage A | system, items | 0 |\n"
+      f"| Stage C write | `app/document.py` | same as Stage A | system, record + transcript | 0.2 |\n")
     w("Local generation: greedy decoding at temperature 0; at temperature > 0, sampling with "
       "top_p 0.9. Each model's own chat template is applied by `transformers`.\n")
 
@@ -89,7 +89,7 @@ def main():
                                      "[2] SPEAKER_01: second line"])))
     w("### Few-shot examples\n")
     w(f"{len(fewshot)} excerpts from the AMI Meeting Corpus (`stageA/stageA_fewshot.json`, built "
-      "by `build_stageA_prompts_from_ami.py`), then one hand-written example. Each is sent as a "
+      "by `tools/build_stageA_prompts_from_ami.py`), then one hand-written example. Each is sent as a "
       "user turn in the format above followed by the gold JSON as the assistant turn. The full "
       "assembled prompt is in `stageA/stageA_example_prompt.txt`.\n")
     if fewshot:
@@ -116,7 +116,9 @@ def main():
     # ---- stage D
     w("## 3. Stage D: verification (language model 2)\n")
     w("Up to 15 items per call; each item is sent with only the transcript lines it cites. "
-      "Unsupported items are removed and listed as flags.\n")
+      "When the verifier rejects an item, code checks whether at least half of the item's "
+      "key words appear on its cited lines: if so the item is kept and flagged for review, "
+      "otherwise it is removed and flagged.\n")
     w("### System\n")
     w(block(document.VERIFY_SYSTEM))
     w("### User turn (format; items separated by `---`)\n")
