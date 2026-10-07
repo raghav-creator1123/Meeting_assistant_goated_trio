@@ -18,6 +18,8 @@ import json
 import os
 import re
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # repository root
+
 INSTRUCTION = (
     "Extract the topics, decisions and tasks from the above transcript. "
     "Return only JSON that follows the schema."
@@ -29,6 +31,15 @@ Cite line numbers for everything.
 
 Rules:
 - topics: the main discussion segments in order, each with a short title and the first and last line.
+- Decision or task? Use these rules:
+  * Work assigned to a person, especially with a deadline, is a TASK, not a decision
+    ("Priya, can you fix the bug?" "Yes, by Thursday." -> task, owner Priya, deadline Thursday).
+  * A suggestion that others agree to is a DECISION with status "agreed".
+  * A suggestion that is parked, postponed, rejected or left open is a PROPOSAL:
+    a decision with status "proposed_only".
+  * "Someone should ..." is a TASK with owner null.
+  * A statement of fact (a number, a status update, a budget) is neither, unless the group
+    decides to change something.
 - decisions: something the group settled on.
   * status "agreed" only if a line shows acceptance or confirmation (e.g. "yes, let's do that",
     "okay, we'll go with that", nobody objects and the chair confirms, or an announced decision).
@@ -129,7 +140,7 @@ def user_turn(lines):
 
 
 def load_examples(path=None):
-    path = path or os.getenv("STAGEA_FEWSHOT", "stageA/stageA_fewshot.json")
+    path = path or os.getenv("STAGEA_FEWSHOT") or os.path.join(ROOT, "stageA", "stageA_fewshot.json")
     if os.path.exists(path):
         with open(path, encoding="utf-8") as f:
             return json.load(f)
