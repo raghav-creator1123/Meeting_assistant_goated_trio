@@ -1,0 +1,39 @@
+# Meeting Assistant — Python dependencies (Python 3.10-3.11)
+# Install with:  pip install -r requirements.txt
+#
+# PyTorch: install the CUDA build FIRST, matching your driver, e.g.
+#   pip install torch --index-url https://download.pytorch.org/whl/cu126
+# A plain "pip install torch" on Windows gives a CPU-only build.
+#
+# Tested with (Windows 11, Python 3.11.9, RTX 4050 6 GB, CUDA 12.6):
+#   torch 2.12.1+cu126, transformers 5.13.0, accelerate 1.14.0, bitsandbytes 0.50.2,
+#   librosa 0.11.0, soundfile 0.14.0, numpy 2.4.6, gradio 6.29.1, huggingface_hub 1.22.0,
+#   openai 3.26.0, python-dotenv 1.2.4, jiwer 4.0.0, pandas 3.0.3
+
+# Core ML stack
+torch>=2.1
+transformers>=4.40
+accelerate
+bitsandbytes           # 4-bit loading for the local models (needs CUDA)
+
+# Audio (non-WAV formats also need ffmpeg on the PATH)
+librosa
+soundfile
+numpy
+
+# Web application
+gradio>=4.0
+
+# Model downloads and configuration
+huggingface_hub
+python-dotenv
+
+# API client; also imported by llm.py on the local backend (for its error types)
+openai>=1.40
+
+# Evaluation helpers (eval_utils.py, make_hp_fewshot_prompts.py; not needed by the app)
+jiwer
+pandas
+
+# Speaker labels (optional; gated model, accept its terms on Hugging Face first)
+# pyannote.audio
