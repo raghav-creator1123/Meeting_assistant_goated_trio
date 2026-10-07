@@ -12,7 +12,13 @@ LLM_BACKEND=local runs both roles on the local GPU instead (Hugging Face transfo
   documentation  DOC_LOCAL_MODEL    (default Qwen/Qwen2.5-7B-Instruct, 4-bit)
 Only one model is kept on the GPU at a time (set LOCAL_KEEP_ALL=1 on large GPUs).
 
-Rate limits (API backend): short waits that the provider asks for are honoured automatically.
+Each role can use its own backend: REFINE_BACKEND / DOC_BACKEND ("local" or "api") override
+LLM_BACKEND, e.g. DOC_BACKEND=api with LLM_BACKEND=local refines on the GPU and documents
+with Gemini.
+
+Rate limits (API backend): calls to one model are spaced at least API_MIN_INTERVAL seconds
+apart (default 7, i.e. under 10 requests per minute), and a response format the API rejected
+once is not tried again. CALLS counts the requests sent to each model. Short waits that the provider asks for are honoured automatically.
 If DOC_FALLBACK_MODEL is set (a Groq model), documentation calls switch to it
 when Gemini is rate-limited; the pipeline records when that happened.
 """
@@ -21,6 +27,7 @@ import json
 import os
 import re
 import time
+from collections import Counter
 from types import SimpleNamespace
 
 try:
@@ -38,6 +45,17 @@ DEFAULTS = {
 }
 KEY_VARS = {"refine": ["GROQ_API_KEY", "REFINE_API_KEY"],
             "doc": ["GEMINI_API_KEY", "DOC_API_KEY"]}
+
+
+CALLS = Counter()            # model -> API requests sent (including rejected ones)
+_LAST_CALL = {}              # model -> time of the last API request
+_BAD_FORMATS = {}            # model -> response_format types the API rejected
+
+
+def backend(role):
+    """'local' or 'api' for role 'refine' or 'doc'."""
+    prefix = "REFINE" if role == "refine" else "DOC"
+    return (os.getenv(f"{prefix}_BACKEND") or os.getenv("LLM_BACKEND") or "api").lower()
 
 
 class LLMError(RuntimeError):
@@ -188,7 +206,7 @@ def make_client(role, fallback=True):
     a single model.
     """
     prefix = "REFINE" if role == "refine" else "DOC"
-    if os.getenv("LLM_BACKEND", "api").lower() == "local":
+    if backend(role) == "local":
         mid = os.getenv(f"{prefix}_LOCAL_MODEL") or LOCAL_DEFAULTS[role][0]
         quant = os.getenv(f"{prefix}_LOCAL_QUANT") or LOCAL_DEFAULTS[role][1]
         return LocalChatClient(mid, quant, int(os.getenv("LOCAL_MAX_INPUT", "24000"))), mid
@@ -198,8 +216,8 @@ def make_client(role, fallback=True):
         names = " or ".join(KEY_VARS[role])
         raise LLMError(f"Missing API key for the {'refinement' if role == 'refine' else 'documentation'} "
                        f"model. Set {names} in your .env file.")
-    # few SDK retries: we handle rate-limit waits ourselves, with clear messages
-    client = OpenAI(api_key=key, base_url=_env(f"{prefix}_BASE_URL"), max_retries=2, timeout=180)
+    # no hidden SDK retries: every request is counted, paced and retried in create_with_wait
+    client = OpenAI(api_key=key, base_url=_env(f"{prefix}_BASE_URL"), max_retries=0, timeout=180)
     wanted = _env(f"{prefix}_MODEL")
     if role == "refine":
         model = pick_groq_model(client, wanted)
@@ -208,16 +226,23 @@ def make_client(role, fallback=True):
             client = ModelChain([(client, model)] + [(client, m) for m in backups])
     else:
         model = wanted or pick_flash_model(client)
+        if not fallback:
+            return client, model
+        # two other Gemini Flash models, used when this one is overloaded or out of quota
+        entries = [(client, model)] + [(client, m) for m in flash_models(client)
+                                       if m != model][:2]
         fb_model = _env("DOC_FALLBACK_MODEL").strip()
-        if fallback and fb_model:
+        has_groq = any(os.getenv(v) for v in KEY_VARS["refine"])
+        if fb_model and fb_model.lower() != "none" and has_groq:
             groq_client, refine_model = make_client("refine", fallback=False)
             options = groq_candidates(groq_client)
             # the named model first (if Groq has it), then other Groq models not used for
             # refinement; "auto", a typo or a retired name just falls through to these
             backups = ([fb_model] if fb_model in options else []) + \
                 [m for m in options if m not in (fb_model, refine_model)]
-            if backups:
-                client = ModelChain([(client, model)] + [(groq_client, m) for m in backups[:3]])
+            entries += [(groq_client, m) for m in backups[:3]]
+        if len(entries) > 1:
+            client = ModelChain(entries)
     return client, model
 
 
@@ -237,9 +262,10 @@ class ModelChain:
         return self.entries[self.pos][1]
 
     def _create(self, **kw):
-        from openai import RateLimitError
+        from openai import APIStatusError, RateLimitError
         while True:
             client, model = self.entries[self.pos]
+            _pace(model)
             try:
                 resp = client.chat.completions.create(**{**kw, "model": model})
                 if model not in self.used:
@@ -250,9 +276,15 @@ class ModelChain:
                 long_wait = _is_daily(e) or (delay is not None and delay > self.max_wait)
                 if not long_wait or self.pos + 1 >= len(self.entries):
                     raise                     # short wait -> create_with_wait retries
-                self.switches.append((model, self.entries[self.pos + 1][1], _short(e, 160)))
-                print(f"[llm] {model} is out of quota; switching to {self.entries[self.pos + 1][1]}.")
-                self.pos += 1
+                why, msg = "is out of quota", _short(e, 160)
+            except APIStatusError as e:
+                if not _overloaded(e) or self.pos + 1 >= len(self.entries):
+                    raise                     # last model overloaded -> create_with_wait waits
+                why, msg = "is overloaded", _short(e, 160)
+            nxt = self.entries[self.pos + 1][1]
+            self.switches.append((model, nxt, msg))
+            print(f"[llm] {model} {why}; switching to {nxt}.")
+            self.pos += 1
 
 
 # preferred Groq chat models, best first (substring match); retired ones are simply skipped
@@ -292,21 +324,28 @@ def pick_groq_model(client, wanted=""):
     raise LLMError("No Groq chat model is available for this key. Set REFINE_MODEL in .env.")
 
 
-def pick_flash_model(client):
-    """Choose the newest general-purpose Gemini Flash model the key can use."""
+def flash_models(client):
+    """General-purpose Gemini Flash models the key can use, newest first."""
     try:
         names = [m.id.replace("models/", "") for m in client.models.list()]
     except Exception as e:
         raise LLMError(f"Could not list Gemini models ({e}). Set DOC_MODEL in .env.") from e
-    skip = ("lite", "image", "tts", "live", "audio", "thinking", "embedding", "preview-tts")
+    skip = ("lite", "image", "tts", "live", "audio", "thinking", "embedding", "preview-tts",
+            "omni", "latest")
     flash = [n for n in names if "gemini" in n and "flash" in n and not any(s in n for s in skip)]
-    if not flash:
-        raise LLMError("No Gemini Flash model found for this key. Set DOC_MODEL in .env.")
 
     def version(n):
         nums = re.findall(r"\d+(?:\.\d+)?", n)
         return (float(nums[0]) if nums else 0, "preview" not in n and "exp" not in n, n)
-    return sorted(flash, key=version)[-1]
+    return sorted(flash, key=version, reverse=True)
+
+
+def pick_flash_model(client):
+    """Choose the newest general-purpose Gemini Flash model the key can use."""
+    flash = flash_models(client)
+    if not flash:
+        raise LLMError("No Gemini Flash model found for this key. Set DOC_MODEL in .env.")
+    return flash[0]
 
 
 def _retry_delay(err):
@@ -329,10 +368,27 @@ def _short(err, n=300):
     return " ".join(str(err).split())[:n]
 
 
+def _pace(model):
+    """Space API requests to one model API_MIN_INTERVAL seconds apart, and count them."""
+    gap = float(os.getenv("API_MIN_INTERVAL", "7"))
+    wait = _LAST_CALL.get(model, 0) + gap - time.time()
+    if wait > 0:
+        time.sleep(wait)
+    _LAST_CALL[model] = time.time()
+    CALLS[model] += 1
+
+
+def _overloaded(err):
+    """Server-side trouble (e.g. Gemini 503 'high demand'); not the caller's fault or quota."""
+    return getattr(err, "status_code", None) in (500, 502, 503, 504)
+
+
 def create_with_wait(client, max_wait=90, tries=4, **kwargs):
-    """chat.completions.create that waits out per-minute rate limits."""
-    from openai import RateLimitError
+    """chat.completions.create that waits out per-minute rate limits and server overload."""
+    from openai import APIStatusError, RateLimitError
     for attempt in range(tries):
+        if not isinstance(client, (LocalChatClient, ModelChain)):   # a ModelChain paces itself
+            _pace(kwargs.get("model"))
         try:
             return client.chat.completions.create(**kwargs)
         except RateLimitError as e:
@@ -340,6 +396,12 @@ def create_with_wait(client, max_wait=90, tries=4, **kwargs):
             if _is_daily(e) or attempt == tries - 1 or (delay and delay > max_wait):
                 raise
             time.sleep(min(delay or 20 * (attempt + 1), max_wait))
+        except APIStatusError as e:
+            if not _overloaded(e) or attempt == tries - 1:
+                raise
+            wait = 10 * 2 ** attempt                    # 10, 20, 40 s
+            print(f"[llm] the API is overloaded ({e.status_code}); retrying in {wait} s...")
+            time.sleep(wait)
 
 
 def chat_json(client, model, messages, schema=None, temperature=0.0, max_tokens=None):
@@ -352,6 +414,9 @@ def chat_json(client, model, messages, schema=None, temperature=0.0, max_tokens=
               [{"type": "json_object"}, None]
     if isinstance(client, LocalChatClient):   # local: one JSON request, then one repair try
         formats = [{"type": "json_object"}, {"type": "json_object"}]
+    else:                                     # skip formats this model already rejected
+        bad = _BAD_FORMATS.get(model, set())
+        formats = [f for f in formats if (f or {}).get("type") not in bad] or [None]
     last, bad_reply = None, None
     for fmt in formats:
         try:
@@ -381,6 +446,10 @@ def chat_json(client, model, messages, schema=None, temperature=0.0, max_tokens=
             raise LLMError(f"Could not reach the API for {model}. Check your internet "
                            f"connection.") from e
         except APIStatusError as e:
+            if _overloaded(e):
+                raise LLMError(f"{model} is overloaded (HTTP {e.status_code}), and so were the "
+                               f"backup models after several retries. This is on the provider's "
+                               f"side and does not use your quota; try again in a few minutes.") from e
             if e.status_code == 413 or "request too large" in str(e).lower() or \
                     "context_length" in str(e).lower():
                 raise RequestTooLarge(f"Request too large for {getattr(client, 'model', model)} "
@@ -389,6 +458,8 @@ def chat_json(client, model, messages, schema=None, temperature=0.0, max_tokens=
                 raise LLMError(f"Model '{model}' is not available (retired or misspelled). Set a "
                                f"current model name in .env. Provider says: {_short(e)}") from e
             last = e            # e.g. response_format not supported -> try the next format
+            if fmt and e.status_code == 400:
+                _BAD_FORMATS.setdefault(model, set()).add(fmt["type"])
         except (json.JSONDecodeError, ValueError) as e:
             last = e
     raise LLMError(f"{model} did not return valid JSON ({last}).")
