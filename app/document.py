@@ -2,9 +2,12 @@
 Documentation stages after the Stage B filter (language model 2, Gemini).
 
 Stage D (verify)  - every decision, proposal and task is checked against the
-                    transcript lines it cites; unsupported items are removed
-                    from the record and listed as flagged. Runs BEFORE Stage C
-                    so the minutes never mention something that failed the check.
+                    transcript lines it cites. When the verifier rejects an item,
+                    code checks whether the item's key words appear on its cited
+                    lines: if they do, the item is kept and flagged for review
+                    (a small verifier is often too strict); if not, it is removed
+                    and flagged. Runs BEFORE Stage C so the minutes never mention
+                    something that was removed.
 Stage C (write)   - writes the concise summary and organised minutes from the
                     verified record and the transcript lines of each topic.
                     Decisions and tasks are NOT rewritten by the LLM; they are
@@ -13,6 +16,7 @@ Stage C (write)   - writes the concise summary and organised minutes from the
 """
 
 import json
+import re
 
 from llm import chat_json
 from stageA_prompt import parse_line
@@ -22,8 +26,11 @@ For each item you get its text and the exact transcript lines it cites.
 Answer "supported": true only if those lines clearly state it.
 - A decision needs the lines to show it was actually agreed or announced, not just suggested.
 - A proposal needs the lines to show it was suggested.
-- A task needs the lines to show the work was assigned or volunteered; if an owner or
-  deadline is given, the lines must state that owner or deadline.
+- A task needs the lines to show the work was assigned, volunteered or said to be needed;
+  if an owner or deadline is given, the lines must state that owner or deadline.
+- A task with owner "unspecified" is valid: "someone should look into X" supports the task
+  "look into X". Do not reject a task because it has no owner or no deadline.
+- Judge the meaning, not the exact wording: a paraphrase of what the lines say is supported.
 Return JSON: {"results": [{"id": "<id>", "supported": true|false, "reason": "<short>"}]}"""
 
 VERIFY_SCHEMA = {"name": "verification", "strict": True, "schema": {
@@ -37,6 +44,14 @@ VERIFY_SCHEMA = {"name": "verification", "strict": True, "schema": {
 WRITE_SYSTEM = """You write meeting documentation from a verified meeting record.
 Use only the information given. Do not add decisions, tasks, owners, deadlines,
 numbers or names that are not in the record or the quoted transcript lines.
+- Say something was agreed or decided ONLY if it is in the record's "decisions" list.
+- Describe items in "proposals" as suggested but not agreed. Describe tasks as work assigned,
+  with the owner and deadline from the record.
+- Describe everything else neutrally as discussed or mentioned (e.g. "The travel budget
+  is 2,000 euros; members were asked to stay within it", not "the team cut the budget"). Never turn a
+  remark or a fact into a decision, a change or an action.
+- Never add facts, causes or outcomes that are not in the transcript lines.
+- Each topic's paragraph covers only that topic's lines; do not repeat other topics.
 Return JSON:
 {"summary": "<3-5 sentence overview of the meeting>",
  "minutes": [{"topic": "<topic title>", "text": "<one paragraph: what was discussed,
@@ -56,6 +71,27 @@ def _cited(lines, ids):
     return [by_no[i] for i in ids if i in by_no]
 
 
+STOP = set("""a an the and or but of to in on at by for with from into is are was were be been
+will would shall should can could may might must do does did it its this that these those
+there their they them we our us you your he she his her i me my not no yes so as up out
+about over than then also just only all any some""".split())
+
+
+def _stems(text):
+    return {w[:5] for w in re.findall(r"[a-z0-9]+", (text or "").lower())
+            if len(w) > 2 and w not in STOP}
+
+
+def _words_on_lines(it, cited, min_share=0.5):
+    """Do the item's key words actually appear on the lines it cites?
+    Words are compared by their first 5 letters, so "fixes" matches "fix", "decided" "decide"."""
+    key = _stems(it["text"])
+    if not key:
+        return False
+    found = key & _stems(" ".join(parse_line(l)[2] for l in cited))
+    return len(found) / len(key) >= min_share
+
+
 def _items(rec):
     for kind in ("decisions", "proposals", "tasks"):
         for i, it in enumerate(rec[kind]):
@@ -66,7 +102,8 @@ def _items(rec):
 
 
 def stage_d_verify(rec, lines, client, model, batch_size=15):
-    """Removes unsupported items from rec (in place) and records them as flags."""
+    """Checks every item (rec is changed in place). An item the verifier rejects is kept and
+    flagged if its key words appear on its cited lines, and removed and flagged otherwise."""
     items = list(_items(rec))
     verdicts = {}
     for b in range(0, len(items), batch_size):
@@ -91,9 +128,18 @@ def stage_d_verify(rec, lines, client, model, batch_size=15):
             rec["flags"].append({"stage": "D", "type": "not_verified", "item": it["text"],
                                  "reason": "verifier returned no verdict"})
         elif not v.get("supported", True):
-            removed.add(id(it))
-            rec["flags"].append({"stage": "D", "type": f"unsupported_{kind[:-1]}",
-                                 "item": it["text"], "reason": v.get("reason", "")})
+            reason = v.get("reason", "")
+            if _words_on_lines(it, _cited(lines, ids)):     # verifier likely too strict: keep
+                rec["flags"].append({"stage": "D", "type": f"review_{kind[:-1]}",
+                                     "item": it["text"],
+                                     "reason": f"kept: its words appear on lines {ids}, but the "
+                                               f"verifier said: {reason}"})
+            else:
+                removed.add(id(it))
+                rec["flags"].append({"stage": "D", "type": f"unsupported_{kind[:-1]}",
+                                     "item": it["text"],
+                                     "reason": f"removed: {reason} (its words are not on lines "
+                                               f"{ids})"})
     for kind in ("decisions", "proposals", "tasks"):
         rec[kind] = [it for it in rec[kind] if id(it) not in removed]
     return rec
