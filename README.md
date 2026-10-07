@@ -1,9 +1,41 @@
-[README.md](https://github.com/user-attachments/files/33140302/README.md)
+[README.md](https://github.com/user-attachments/files/33141394/README.md)
 # Meeting Assistant
 
 Turns a meeting recording into a transcript and a structured meeting record: a summary, minutes per topic, agreed decisions, proposals that were not agreed, and action items with owners and deadlines. Every item cites the transcript lines it came from, and anything the pipeline could not confirm is listed as a flag for review.
 
 Everything runs locally on a GPU with open models (Whisper + Qwen2.5). No API keys are needed. A hosted-API backend (Groq + Gemini) is optional.
+
+## Quick start
+
+Run all commands from the repository root (the folder with `.env` and `requirements.txt`). The code lives in `app/`.
+
+**Windows**
+
+```bat
+python -m venv .venv
+.venv\Scripts\activate
+pip install torch --index-url https://download.pytorch.org/whl/cu126
+pip install -r requirements.txt
+copy .env.example .env
+python app\setup.py
+python app\app.py
+```
+
+**Linux / macOS**
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install torch --index-url https://download.pytorch.org/whl/cu126
+pip install -r requirements.txt
+cp .env.example .env
+python app/setup.py
+python app/app.py
+```
+
+Then open http://localhost:7860 in a browser, upload or record a meeting, and press **Run**. On Windows, after the first-time setup you can start the app by double-clicking `run_app.bat`.
+
+If your GPU has less than 15 GB of memory, edit `.env` before the first run (see [Requirements](#requirements)). If you have no GPU, see the API backend under [Optional features](#optional-features).
 
 ## How it works
 
@@ -87,8 +119,8 @@ copy .env.example .env              # Windows
 #    then edit .env: choose the model profile for your GPU (see the table above)
 
 # 6. One-time setup check, then a quick smoke test
-python setup.py
-python check.py
+python app/setup.py
+python app/check.py
 ```
 
 Install ffmpeg if it is missing: `winget install Gyan.FFmpeg` (Windows), `sudo apt install ffmpeg` (Ubuntu) or `brew install ffmpeg` (macOS).
@@ -106,20 +138,20 @@ The first run downloads Whisper and Qwen weights from Hugging Face (several GB).
 **Web app**
 
 ```bash
-python app.py                 # http://localhost:7860
-python app.py --share         # also a public gradio.live link
-python app.py --port 8080
-python app.py --api           # use the Groq + Gemini backend instead of local models
+python app/app.py             # http://localhost:7860
+python app/app.py --share     # also a public gradio.live link
+python app/app.py --port 8080
+python app/app.py --api       # use the Groq + Gemini backend instead of local models
 ```
 
-On Windows you can also double-click `run_app.bat` (it uses `.venv` if present). In the app: upload or record audio, edit the glossary if needed, tick *Speaker labels* if configured, press **Run**, follow the live status, then view and download the outputs.
+On Windows you can also double-click `run_app.bat`, or run `run_app.bat --share` from a terminal; it uses `.venv` if present and accepts the same options as `app/app.py`. Stop the app with Ctrl+C in the terminal. In the app: upload or record audio, edit the glossary if needed, tick *Speaker labels* if configured, press **Run**, follow the live status, then view and download the outputs.
 
 **Command line**
 
 ```bash
-python pipeline.py meeting.mp3 --out outputs/my_meeting
-python pipeline.py meeting.mp3 --out outputs/my_meeting --glossary prompts/glossary.txt --diarize
-python pipeline.py --segments nbest.json --out outputs/test   # skip speech-to-text
+python app/pipeline.py meeting.mp3 --out outputs/my_meeting
+python app/pipeline.py meeting.mp3 --out outputs/my_meeting --glossary prompts/glossary.txt --diarize
+python app/pipeline.py --segments nbest.json --out outputs/test   # skip speech-to-text
 ```
 
 `--segments` takes a JSON list of `{"id": 1, "hypotheses": ["...", ...], "speaker": "SPEAKER_00"}`.
@@ -209,7 +241,7 @@ meeting_assistant/
 
 **Speaker labels.** Accept the terms of [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) on Hugging Face, `pip install pyannote.audio`, set `HF_TOKEN=hf_...` in `.env`, then tick *Speaker labels* in the app (or pass `--diarize`).
 
-**API backend.** Set `LLM_BACKEND=api` (or run `python app.py --api`) and add `GROQ_API_KEY` and `GEMINI_API_KEY` to `.env`. Refinement then runs on Groq, documentation on Gemini; no GPU is needed for the language models.
+**API backend.** Set `LLM_BACKEND=api` (or run `python app/app.py --api`) and add `GROQ_API_KEY` and `GEMINI_API_KEY` to `.env`. Refinement then runs on Groq, documentation on Gemini; no GPU is needed for the language models.
 
 ## Troubleshooting
 
