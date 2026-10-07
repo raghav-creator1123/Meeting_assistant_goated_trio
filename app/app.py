@@ -7,10 +7,11 @@ Runs entirely on your GPU — no API keys required.
   • Qwen2.5-7B-Instruct (4-bit, bitsandbytes) for documentation
 
 Usage:
-    python app.py                # local URL at http://localhost:7860
+    python app/app.py             # local URL at http://localhost:7860
     python app.py --share        # also create a public Gradio link
     python app.py --port 8080    # custom port
     python app.py --api          # switch to Groq + Gemini API backend
+    (or set DOC_BACKEND=api in .env: refinement on the GPU, documentation on Gemini)
 
 From a notebook:
     from app import build_app
@@ -26,10 +27,11 @@ import sys
 import threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)                # repository root: .env, prompts/, outputs/
 sys.path.insert(0, HERE)
 
 # Load .env before importing pipeline modules (sets LLM_BACKEND=local etc.)
-env_path = os.path.join(HERE, ".env")
+env_path = os.path.join(ROOT, ".env")
 if os.path.isfile(env_path):
     try:
         from dotenv import load_dotenv
@@ -40,24 +42,41 @@ if os.path.isfile(env_path):
 from asr import SUPPORTED                               # noqa: E402
 from pipeline import PipelineError, run                # noqa: E402
 
-GLOSSARY = os.path.join(HERE, "prompts", "glossary.txt")
-JOBS = os.path.join(HERE, "outputs", "app_runs")
+GLOSSARY = os.path.join(ROOT, "prompts", "glossary.txt")
+JOBS = os.path.join(ROOT, "outputs", "app_runs")
 
 SUPPORTED_FMT = ", ".join(SUPPORTED)
 
 # ------------------------------------------------------------------ UI text
 
-INTRO = """# 🎙️ Meeting Assistant &nbsp;·&nbsp; Local GPU Edition
+def model_names():
+    """(refinement, documentation) as 'model (where)' labels, from the .env settings."""
+    from llm import LOCAL_DEFAULTS, backend
+    out = []
+    for role, prefix in (("refine", "REFINE"), ("doc", "DOC")):
+        if backend(role) == "local":
+            name = os.getenv(f"{prefix}_LOCAL_MODEL") or LOCAL_DEFAULTS[role][0]
+            out.append((name.split("/")[-1], "GPU"))
+        elif role == "refine":
+            out.append((os.getenv("REFINE_MODEL") or "Groq model", "Groq API"))
+        else:
+            out.append((os.getenv("DOC_MODEL") or "Gemini Flash", "Gemini API"))
+    return out
+
+
+def intro():
+    (r_name, r_where), (d_name, d_where) = model_names()
+    return f"""# 🎙️ Meeting Assistant
 
 Upload (or record) an **English meeting recording** and press **▶ Run**.
 
 | Step | What runs | Where |
 |---|---|---|
 | 1 · Transcription | Whisper 5-best hypotheses | GPU |
-| 2 · Refinement | Qwen2.5-3B — fixes domain terms, names, numbers | GPU |
-| 3 · Extraction | Qwen2.5-7B — topics, decisions, action items | GPU |
-| 4 · Verification | LM checks every item against the transcript | GPU |
-| 5 · Writing | Summary + minutes from the verified record | GPU |
+| 2 · Refinement | {r_name} — fixes domain terms, names, numbers | {r_where} |
+| 3 · Extraction | {d_name} — topics, decisions, action items | {d_where} |
+| 4 · Verification | {d_name} checks every item against the transcript | {d_where} |
+| 5 · Writing | {d_name} — summary + minutes from the verified record | {d_where} |
 
 Owners and deadlines are filled in **only when the recording states them**.  
 Everything the pipeline is uncertain about appears under **⚠ Flags**.
@@ -242,7 +261,7 @@ def build_app():
     import gradio as gr
 
     with gr.Blocks(title="Meeting Assistant") as demo:
-        gr.Markdown(INTRO)
+        gr.Markdown(intro())
 
         with gr.Row(equal_height=False):
 
@@ -377,12 +396,10 @@ if __name__ == "__main__":
 
     if args.api:
         os.environ["LLM_BACKEND"] = "api"
-        print("[app] Using API backend (Groq + Gemini). Set keys in .env.")
     else:
-        # Ensure local GPU mode is set (also set in .env, but be explicit)
         os.environ.setdefault("LLM_BACKEND", "local")
-        print("[app] Using local GPU backend (Qwen2.5-3B + Qwen2.5-7B).")
-        print("      First run will download model weights (~7 GB).")
+    (r_name, r_where), (d_name, d_where) = model_names()
+    print(f"[app] Refinement: {r_name} ({r_where}); documentation: {d_name} ({d_where}).")
 
     build_app().queue().launch(
         share=args.share,
