@@ -1,0 +1,14 @@
+Kubernetes
+PostgreSQL
+Redis
+CI/CD
+API
+OKR
+sprint
+backlog
+GraphQL
+Docker
+microservice
+DevOps
+SLA
+ETL
