@@ -6,8 +6,8 @@ End-to-end meeting assistant pipeline.
         ─► Markdown + JSON record
 
 Usage
-    python pipeline.py meeting.mp3 --out outputs --glossary glossary.txt [--diarize]
-    python pipeline.py --segments nbest.json --out outputs     # skip speech-to-text
+    python app/pipeline.py meeting.mp3 --out outputs --glossary glossary.txt [--diarize]
+    python app/pipeline.py --segments nbest.json --out outputs     # skip speech-to-text
 
 Prompt choices made in prompt_tuning.ipynb are read from prompts/*.json.
 Every failure is raised as PipelineError with a message that can be shown in the UI.
@@ -21,6 +21,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)                # repository root: prompts/, stageA/
 sys.path.insert(0, HERE)
 
 from asr import AudioError                                  # noqa: E402
@@ -46,7 +47,7 @@ class PipelineError(RuntimeError):
 
 
 def load_config(name, default):
-    path = os.path.join(HERE, "prompts", name)
+    path = os.path.join(ROOT, "prompts", name)
     if os.path.exists(path):
         with open(path, encoding="utf-8") as f:
             return {**default, **json.load(f)}
@@ -55,7 +56,7 @@ def load_config(name, default):
 
 def load_glossary(path):
     if not path:
-        path = os.path.join(HERE, "prompts", "glossary.txt")
+        path = os.path.join(ROOT, "prompts", "glossary.txt")
         if not os.path.exists(path):
             return []
     with open(path, encoding="utf-8") as f:
@@ -84,6 +85,8 @@ def run(audio_path=None, out_dir="outputs", glossary=None, diarize=False,
     except LLMError as e:
         raise PipelineError("Setup", str(e))
     stt_name = os.getenv("WHISPER_MODEL", "openai/whisper-small")
+    from llm import CALLS
+    calls_before = sum(CALLS.values())
 
     # ---- 1. speech-to-text ------------------------------------------------
     if segments is None:
@@ -154,7 +157,8 @@ def run(audio_path=None, out_dir="outputs", glossary=None, diarize=False,
                 raise PipelineError("Stage A (extraction)", str(e))
 
     # long transcripts are processed in overlapping chunks (local models have less memory)
-    local = os.getenv("LLM_BACKEND", "api").lower() == "local"
+    from llm import backend
+    local = backend("doc") == "local"
     size = int(os.getenv("STAGEA_CHUNK_LINES", "100" if local else "100000"))
     overlap = 10
     if len(lines) <= size:
@@ -178,7 +182,9 @@ def run(audio_path=None, out_dir="outputs", glossary=None, diarize=False,
     say("5/6 Verifying every item against the transcript (Stage D)...")
     try:
         try:
-            stage_d_verify(record, lines, d_client, d_model)
+            # API: all items in one request (rate limits); local: 15 per call (GPU memory)
+            stage_d_verify(record, lines, d_client, d_model,
+                           batch_size=15 if local else 100)
         except RequestTooLarge:
             say("   request too large; verifying in smaller batches...")
             stage_d_verify(record, lines, d_client, d_model, batch_size=4)
@@ -218,10 +224,12 @@ def run(audio_path=None, out_dir="outputs", glossary=None, diarize=False,
         "flags": flags + record["flags"], "notes": notes,
         "raw_transcript": raw_lines, "refined_transcript": lines, "segments": segments,
         "seconds": round(time.time() - t0, 1),
+        "api_calls": sum(CALLS.values()) - calls_before,
     }
     write_outputs(result, out_dir)
     say(f"Done in {result['seconds']} s. {len(record['decisions'])} decisions, "
-        f"{len(record['tasks'])} tasks, {len(result['flags'])} flags.")
+        f"{len(record['tasks'])} tasks, {len(result['flags'])} flags, "
+        f"{result['api_calls']} API calls.")
     return result
 
 
